@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Face Recognition</title>
+
+<!-- โหลด face-api จาก CDN -->
+<script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.min.js"></script>
+
+<style>
+  body { text-align: center; font-family: sans-serif; }
+  video, canvas { position: absolute; left: 50%; transform: translateX(-50%); }
+</style>
+</head>
+
+<body>
+<h2>Face Recognition Demo</h2>
+
+<video id="video" width="480" height="360" autoplay muted></video>
+<canvas id="canvas" width="480" height="360"></canvas>
+
+<script>
+async function loadModels() {
+  const URL = "https://cdn.jsdelivr.net/gh/cgarciagl/face-api.js/weights/";
+  await faceapi.nets.faceRecognitionNet.loadFromUri(URL);
+  await faceapi.nets.faceLandmark68Net.loadFromUri(URL);
+  await faceapi.nets.ssdMobilenetv1.loadFromUri(URL);
+}
+
+// โหลดข้อมูลใบหน้าที่ต้องจำ
+async function loadLabeledImages() {
+  const labels = ["Person1", "Person2"]; // ใส่ชื่อคน
+
+  return Promise.all(
+    labels.map(async label => {
+      const imgUrl = `people/${label}.jpg`;
+      const img = await faceapi.fetchImage(imgUrl);
+
+      const detections = await faceapi
+        .detectSingleFace(img)
+        .withFaceLandmarks()
+        .withFaceDescriptor();
+
+      return new faceapi.LabeledFaceDescriptors(label, [detections.descriptor]);
+    })
+  );
+}
+
+async function start() {
+  await loadModels();
+
+  const labeledFaceDescriptors = await loadLabeledImages();
+  const faceMatcher = new faceapi.FaceMatcher(labeledFaceDescriptors, 0.6);
+
+  const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+  const video = document.getElementById("video");
+  video.srcObject = stream;
+
+  const canvas = document.getElementById("canvas");
+  const ctx = canvas.getContext("2d");
+
+  video.addEventListener("playing", async () => {
+    const size = { width: video.width, height: video.height };
+    faceapi.matchDimensions(canvas, size);
+
+    setInterval(async () => {
+      const detections = await faceapi
+        .detectAllFaces(video)
+        .withFaceLandmarks()
+        .withFaceDescriptors();
+
+      const resized = faceapi.resizeResults(detections, size);
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      resized.forEach(d => {
+        const match = faceMatcher.findBestMatch(d.descriptor);
+
+        const box = d.detection.box;
+        const { x, y, width, height } = box;
+
+        ctx.beginPath();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = "red";
+        ctx.rect(x, y, width, height);
+        ctx.stroke();
+
+        ctx.fillStyle = "red";
+        ctx.font = "18px Arial";
+        ctx.fillText(match.toString(), x, y - 5);
+      });
+    }, 100);
+  });
+}
+
+start();
+
+</script>
+
+</body>
+</html>
